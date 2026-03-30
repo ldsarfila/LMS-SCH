@@ -11,6 +11,7 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
 use Spatie\Permission\Traits\HasRoles;
+use Illuminate\Support\Facades\Cache;
 
 class User extends Authenticatable
 {
@@ -18,6 +19,9 @@ class User extends Authenticatable
 
     protected $keyType = 'string';
     public $incrementing = false;
+
+    // Prevent N+1 queries by eager loading common relationships
+    protected $with = ['school'];
 
     protected $fillable = [
         'school_id',
@@ -61,6 +65,15 @@ class User extends Authenticatable
             if (empty($model->{$model->getKeyName()})) {
                 $model->{$model->getKeyName()} = (string) \Str::uuid();
             }
+        });
+
+        // Clear cached user data on update/delete
+        static::saved(function ($model) {
+            Cache::tags(['user-' . $model->id])->flush();
+        });
+
+        static::deleted(function ($model) {
+            Cache::tags(['user-' . $model->id])->flush();
         });
     }
 
@@ -177,5 +190,35 @@ class User extends Authenticatable
     public function scopeTeachers($query)
     {
         return $query->role('teacher');
+    }
+
+    /**
+     * Get user with cached data to prevent repeated queries
+     */
+    public static function getCached(string $id): ?self
+    {
+        return Cache::tags(['user-' . $id])
+            ->remember("user.{$id}", 3600, function () use ($id) {
+                return self::with(['school'])->find($id);
+            });
+    }
+
+    /**
+     * Efficiently count enrollments without loading all records
+     */
+    public function getEnrollmentCountAttribute(): int
+    {
+        return $this->enrollments()->count();
+    }
+
+    /**
+     * Check if user has role with caching to reduce database hits
+     */
+    public function hasRoleCached($role): bool
+    {
+        return Cache::tags(['user-roles-' . $this->id])
+            ->remember("user.{$this->id}.role.{$role}", 600, function () use ($role) {
+                return $this->hasRole($role);
+            });
     }
 }
