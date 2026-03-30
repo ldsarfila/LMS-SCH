@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Support\Facades\Cache;
 
 class School extends Model
 {
@@ -14,6 +15,9 @@ class School extends Model
 
     protected $keyType = 'string';
     public $incrementing = false;
+
+    // Prevent N+1 queries by eager loading common relationships
+    protected $withCount = ['users', 'courses', 'classes'];
 
     protected $fillable = [
         'name',
@@ -50,6 +54,15 @@ class School extends Model
             if (empty($model->{$model->getKeyName()})) {
                 $model->{$model->getKeyName()} = (string) \Str::uuid();
             }
+        });
+
+        // Clear cached school data on update/delete
+        static::saved(function ($model) {
+            Cache::tags(['school-' . $model->id])->flush();
+        });
+
+        static::deleted(function ($model) {
+            Cache::tags(['school-' . $model->id])->flush();
         });
     }
 
@@ -106,5 +119,38 @@ class School extends Model
     public function scopeActive($query)
     {
         return $query->where('status', self::STATUS_ACTIVE);
+    }
+
+    /**
+     * Get school with cached data to prevent repeated queries
+     */
+    public static function getCached(string $id): ?self
+    {
+        return Cache::tags(['school-' . $id])
+            ->remember("school.{$id}", 3600, function () use ($id) {
+                return self::withCount(['users', 'courses', 'classes'])->find($id);
+            });
+    }
+
+    /**
+     * Get active users count efficiently using cached count
+     */
+    public function getActiveUsersCountAttribute(): int
+    {
+        return Cache::tags(['school-stats-' . $this->id])
+            ->remember("school.{$this->id}.active_users", 600, function () {
+                return $this->users()->active()->count();
+            });
+    }
+
+    /**
+     * Get active courses count efficiently using cached count
+     */
+    public function getActiveCoursesCountAttribute(): int
+    {
+        return Cache::tags(['school-stats-' . $this->id])
+            ->remember("school.{$this->id}.active_courses", 600, function () {
+                return $this->courses()->where('status', 'published')->count();
+            });
     }
 }
