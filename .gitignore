@@ -1,0 +1,39 @@
+```
+# Laravel/Lumen specific
+vendor/
+bootstrap/cache/
+storage/logs/
+storage/framework/
+public/storage/
+
+# PHP
+*.php~
+*.phtml~
+.php_cs.cache
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+storage/logs/*.log
+
+# Database
+database/seeds/
+database/factories/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Tests
+.phpunit.result.cache
+```
